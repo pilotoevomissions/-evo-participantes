@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#3b4a2a">
+<meta name="robots" content="noindex,nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="EVO Participantes">
+<title>EVO Missions · Participantes</title>
+<style>
+:root{--bg:#f3efe4;--card:#fffdf7;--ink:#1f2418;--muted:#6b6f5e;--line:#e2dccb;--olive:#3b4a2a;--olive2:#556b3a;--sand:#ebe4d0;--alert:#b03a2e;--alertbg:#fbeae7;--ok:#2e7d32;--infobg:#eef1e6;--r:14px}
+@media (prefers-color-scheme:dark){:root{--bg:#12150e;--card:#1c2016;--ink:#ece8da;--muted:#9a9c8a;--line:#2e3426;--sand:#262b1e;--alertbg:#3a1c18;--alert:#ef7b6e;--infobg:#232a1b;--olive:#26301c}}
+*{box-sizing:border-box}html,body{margin:0}
+body{font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);-webkit-tap-highlight-color:transparent}
+.app{max-width:680px;margin:0 auto;padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:5;background:var(--olive);color:#f3efe4;padding:calc(10px + env(safe-area-inset-top)) 16px 12px}
+header h1{font-size:17px;margin:0}header .sub{font-size:12px;opacity:.75}
+.search{margin-top:10px;width:100%;font-size:17px;padding:12px 14px;border-radius:12px;border:0;background:#fffdf7;color:#1f2418}
+main{padding:12px 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin:10px 0}
+.muted{color:var(--muted);font-size:14px}
+.btn{display:inline-block;background:var(--olive2);color:#fff;border:0;border-radius:12px;padding:12px 14px;font-size:15px;text-align:center;cursor:pointer}
+.btn.sec{background:var(--sand);color:var(--ink)}.btn.full{display:block;width:100%;margin:8px 0}
+.res{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 2px;border-bottom:1px solid var(--line)}
+.res:last-child{border-bottom:0}.res .nm{font-weight:600}
+.tag{background:var(--olive2);color:#fff;border-radius:20px;padding:4px 12px;font-size:14px;white-space:nowrap;border:0;cursor:pointer}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:var(--sand);color:var(--ink);border:0;border-radius:20px;padding:7px 12px;font-size:14px;cursor:pointer}
+.chip.on{background:var(--olive2);color:#fff}
+.msg{border-radius:12px;padding:10px 12px;margin:10px 0;font-size:14px}
+.msg.err{background:var(--alertbg);color:var(--alert)}.msg.ok{background:var(--infobg);color:var(--ok)}
+mark{background:#f5d76e;color:inherit;border-radius:3px}
+h2{font-size:14px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:18px 2px 6px}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <h1>Participantes · EVO Missions</h1><div class="sub" id="sub">Identificação de participantes por patrulha</div>
+  <input id="q" class="search" type="search" placeholder="Digite parte do nome…" autocomplete="off" autocapitalize="off" spellcheck="false" hidden>
+</header>
+<main id="main"></main>
+</div>
+<script>
+/* Página independente: lista e identificação de participantes por patrulha.
+   Usa SÓ a chave abaixo no localStorage. Nenhum dado pessoal fica no repositório:
+   a lista vem de um arquivo .json importado e fica só neste aparelho. */
+"use strict";
+const KEY="evo_busca_nov26_v1", PREV=KEY+"_anterior";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const norm=s=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/\s+/g," ").trim();
+let db=null, filtro="";
+
+function load(){try{const s=localStorage.getItem(KEY);return s?JSON.parse(s):null}catch(e){return null}}
+function save(d){localStorage.setItem(KEY,JSON.stringify(d))}
+
+/* Aceita {participantes:[{nome,patrulha}]} ou uma lista [{nome,patrulha}] */
+function validar(obj){
+  const arr=Array.isArray(obj)?obj:(obj&&Array.isArray(obj.participantes)?obj.participantes:null);
+  if(!arr)throw new Error("Arquivo sem a lista \"participantes\". Confira se é o arquivo de participantes por patrulha.");
+  const lista=[];
+  arr.forEach((p,i)=>{
+    const nome=String(p&&p.nome||"").trim(), pat=String(p&&p.patrulha||"").trim();
+    if(!nome||!pat)throw new Error(`Item ${i+1} sem nome ou patrulha.`);
+    lista.push({nome,patrulha:pat});
+  });
+  if(!lista.length)throw new Error("A lista está vazia.");
+  return {evento:String(obj.evento||"EVO Missions"),divisao:String(obj.divisao||""),
+          participantes:lista,importadoEm:new Date().toISOString()};
+}
+
+function importar(file){
+  const fr=new FileReader();
+  fr.onload=()=>{
+    try{
+      const novo=validar(JSON.parse(String(fr.result).replace(/^﻿/,"")));
+      if(db){
+        const ok=confirm(`Substituir a lista atual (${db.participantes.length} nomes) pela nova (${novo.participantes.length} nomes)?\n\nA lista atual fica guardada como cópia e pode ser restaurada.`);
+        if(!ok)return;
+        localStorage.setItem(PREV,JSON.stringify(db));
+      }
+      save(novo);db=novo;filtro="";$("#q").value="";render(`✓ ${novo.participantes.length} participantes importados.`);
+    }catch(e){render(null,"Não foi possível importar: "+e.message)}
+  };
+  fr.onerror=()=>render(null,"Não foi possível ler o arquivo.");
+  fr.readAsText(file);
+}
+
+function patrulhas(){const m=new Map();db.participantes.forEach(p=>m.set(p.patrulha,(m.get(p.patrulha)||0)+1));
+  return [...m.entries()].sort((a,b)=>a[0].localeCompare(b[0],"pt"))}
+
+function hl(nome,q){if(!q)return esc(nome);
+  const n=norm(nome);const i=n.indexOf(q);if(i<0||n.length!==nome.length)return esc(nome);
+  return esc(nome.slice(0,i))+"<mark>"+esc(nome.slice(i,i+q.length))+"</mark>"+esc(nome.slice(i+q.length))}
+
+function telaImport(ok,err){
+  $("#q").hidden=true;
+  const temCopia=!!localStorage.getItem(PREV);
+  $("#main").innerHTML=`
+  ${ok?`<div class="msg ok">${esc(ok)}</div>`:""}${err?`<div class="msg err">${esc(err)}</div>`:""}
+  <div class="card"><b>Primeira vez neste aparelho?</b>
+   <p class="muted">Importe o arquivo <b>EVO_Participantes_Patrulhas.json</b> recebido da coordenação. A lista fica só neste celular.</p>
+   <label class="btn full">📥 Importar lista de participantes<input type="file" accept=".json,application/json" id="f" hidden></label>
+   ${temCopia?`<button class="btn sec full" id="restaurar">♻️ Restaurar a lista anterior</button>`:""}
+  </div>`;
+}
+
+function render(ok,err){
+  if(!db)return telaImport(ok,err);
+  const q=norm(filtro);
+  $("#q").hidden=false;
+  $("#sub").textContent=`${db.participantes.length} participantes · ${patrulhas().length} patrulhas${db.divisao?" · divisão de "+db.divisao:""}`;
+  let html=(ok?`<div class="msg ok">${esc(ok)}</div>`:"")+(err?`<div class="msg err">${esc(err)}</div>`:"");
+  const chips=`<div class="chips">${patrulhas().map(([p,n])=>`<button class="chip${q===norm(p)?" on":""}" data-pat="${esc(p)}">${esc(p)} · ${n}</button>`).join("")}</div>`;
+  if(!q){
+    html+=`<h2>Patrulhas</h2><div class="card">${chips}<p class="muted" style="margin:10px 0 0">Digite um nome no campo acima ou toque numa patrulha para ver os integrantes.</p></div>`;
+  }else{
+    const porPat=db.participantes.filter(p=>norm(p.patrulha)===q);
+    const lista=porPat.length?porPat:db.participantes.filter(p=>norm(p.nome).includes(q));
+    lista.sort((a,b)=>a.nome.localeCompare(b.nome,"pt"));
+    html+=`<h2>${porPat.length?"Patrulha "+esc(porPat[0].patrulha):"Resultado"} · ${lista.length}</h2>`;
+    html+=lista.length?`<div class="card">${lista.map(p=>`<div class="res"><span class="nm">${porPat.length?esc(p.nome):hl(p.nome,q)}</span><button class="tag" data-pat="${esc(p.patrulha)}">${esc(p.patrulha)}</button></div>`).join("")}</div>`
+      :`<div class="card muted">Nenhum participante encontrado para “${esc(filtro)}”. Tente só o primeiro nome ou o sobrenome.</div>`;
+    html+=`<h2>Patrulhas</h2><div class="card">${chips}</div>`;
+  }
+  html+=`<h2>Dados</h2><div class="card"><p class="muted" style="margin-top:0">Lista importada em ${new Date(db.importadoEm).toLocaleString("pt-BR")}. Fica só neste aparelho.</p>
+   <label class="btn sec full">📥 Importar lista atualizada<input type="file" accept=".json,application/json" id="f" hidden></label>
+   ${localStorage.getItem(PREV)?`<button class="btn sec full" id="restaurar">♻️ Restaurar a lista anterior</button>`:""}
+   <button class="btn sec full" id="apagar">🗑️ Apagar a lista deste aparelho</button></div>`;
+  $("#main").innerHTML=html;
+}
+
+document.addEventListener("change",e=>{if(e.target.id==="f"&&e.target.files[0])importar(e.target.files[0])});
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-pat],#restaurar,#apagar");if(!t)return;
+  if(t.dataset.pat){filtro=t.dataset.pat;$("#q").value=filtro;render();window.scrollTo(0,0);return}
+  if(t.id==="restaurar"){const ant=localStorage.getItem(PREV);if(!ant)return;
+    if(!confirm("Trocar a lista atual pela anterior? A atual vira a nova cópia."))return;
+    if(db)localStorage.setItem(PREV,JSON.stringify(db));else localStorage.removeItem(PREV);
+    localStorage.setItem(KEY,ant);db=JSON.parse(ant);filtro="";$("#q").value="";render("✓ Lista anterior restaurada.");return}
+  if(t.id==="apagar"){if(!confirm("Apagar a lista de participantes deste aparelho?"))return;
+    localStorage.removeItem(KEY);localStorage.removeItem(PREV);db=null;filtro="";$("#q").value="";render("Lista apagada.")}
+});
+$("#q").addEventListener("input",e=>{filtro=e.target.value;render()});
+
+db=load();
+let semStorage=null;
+try{localStorage.setItem(KEY+"_t","1");localStorage.removeItem(KEY+"_t")}catch(e){semStorage="Este navegador não permite salvar dados (modo anônimo?). A lista não ficará guardada."}
+render(null,semStorage);
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw-participantes.js",{scope:"./participantes.html"}).catch(e=>console.warn("SW",e));
+</script>
+</body>
+</html>
